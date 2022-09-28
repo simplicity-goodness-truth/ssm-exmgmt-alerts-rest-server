@@ -17,6 +17,7 @@ private section.
   methods CONFIRM_ALERT_GROUP_BY_GUID
     importing
       !IP_GUID type AC_GUID
+      !IP_COMMENT type STRING optional
     returning
       value(EP_RC) type SY-SUBRC .
   class-methods GET_ACTION
@@ -29,6 +30,11 @@ private section.
       !IP_PATH type STRING
     returning
       value(EP_RESULT) type CHAR32 .
+  class-methods GET_COMMENT
+    importing
+      !IP_PATH type STRING
+    returning
+      value(EP_RESULT) type STRING .
 ENDCLASS.
 
 
@@ -40,6 +46,7 @@ CLASS ZCL_ALERT_ACTIONS_HANDLER IMPLEMENTATION.
 * | Instance Private Method ZCL_ALERT_ACTIONS_HANDLER->CONFIRM_ALERT_GROUP_BY_GUID
 * +-------------------------------------------------------------------------------------------------+
 * | [--->] IP_GUID                        TYPE        AC_GUID
+* | [--->] IP_COMMENT                     TYPE        STRING(optional)
 * | [<-()] EP_RC                          TYPE        SY-SUBRC
 * +--------------------------------------------------------------------------------------</SIGNATURE>
   method confirm_alert_group_by_guid.
@@ -64,7 +71,13 @@ CLASS ZCL_ALERT_ACTIONS_HANDLER IMPLEMENTATION.
 
     endif.
 
-    lv_confirmation_text = zcl_servess_alerts_integration=>get_alrt_rest_int_param_value( 'ALERT_CONFIRM_TEXT' ).
+
+    if ip_comment is initial.
+      lv_confirmation_text = zcl_servess_alerts_integration=>get_alrt_rest_int_param_value( 'ALERT_CONFIRM_TEXT' ).
+    else.
+      lv_confirmation_text = ip_comment.
+    endif.
+
 
     ls_suppressed_alert = ip_guid.
 
@@ -124,20 +137,73 @@ CLASS ZCL_ALERT_ACTIONS_HANDLER IMPLEMENTATION.
 * | [--->] IP_PATH                        TYPE        STRING
 * | [<-()] EP_RESULT                      TYPE        CHAR32
 * +--------------------------------------------------------------------------------------</SIGNATURE>
-  method GET_ALERT_GUID.
+  method get_alert_guid.
 
+    data lv_substring type string.
 
     search ip_path for 'alert_guid='.
 
     if sy-subrc eq 0.
 
-      ep_result = substring_after( val = ip_path sub = 'alert_guid=' ).
+      lv_substring = substring_after( val = ip_path sub = 'alert_guid=' ).
+
+      search lv_substring for '&'.
+
+      if sy-subrc eq 0.
+
+        ep_result = substring_before( val = lv_substring sub = '&' ).
+
+      else.
+
+        ep_result = lv_substring.
+
+      endif.
 
       if strlen( ep_result ) ne 32.
         clear ep_result.
       endif.
 
     endif. "if sy-subrc eq 0
+
+
+  endmethod.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Private Method ZCL_ALERT_ACTIONS_HANDLER=>GET_COMMENT
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IP_PATH                        TYPE        STRING
+* | [<-()] EP_RESULT                      TYPE        STRING
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  method get_comment.
+
+    data lv_substring type string.
+
+    search ip_path for 'comment='.
+
+    if sy-subrc eq 0.
+
+      lv_substring = substring_after( val = ip_path sub = 'comment=' ).
+
+      search lv_substring for '&'.
+
+      if sy-subrc eq 0.
+
+        ep_result = substring_before( val = lv_substring sub = '&' ).
+
+      else.
+
+        ep_result = lv_substring.
+
+      endif.
+
+    endif. "if sy-subrc eq 0
+
+    if ep_result is not initial.
+
+      ep_result = cl_http_utility=>unescape_url( ep_result ).
+
+    endif.
 
 
   endmethod.
@@ -164,7 +230,8 @@ CLASS ZCL_ALERT_ACTIONS_HANDLER IMPLEMENTATION.
          lv_reason          type string,
          ls_json_res_obj    type ty_json_res,
          lv_json_res_str    type string,
-         lr_json_serializer type ref to zcl_json_serializer.
+         lr_json_serializer type ref to zcl_json_serializer,
+         lv_comment         type string.
 
 
     " Default response
@@ -186,11 +253,17 @@ CLASS ZCL_ALERT_ACTIONS_HANDLER IMPLEMENTATION.
 
       when 'CONFIRM'.
 
+        " Get alert GUID
+
         lv_alert_guid = get_alert_guid( lv_path ).
 
         if lv_alert_guid is not initial.
 
-          lv_rc = confirm_alert_group_by_guid( lv_alert_guid ).
+          " Get confirmation comment
+
+          lv_comment = get_comment( lv_path ).
+
+          lv_rc = confirm_alert_group_by_guid( exporting ip_guid = lv_alert_guid ip_comment = lv_comment ).
 
         endif. " if lv_alert_guid is not initial
 
